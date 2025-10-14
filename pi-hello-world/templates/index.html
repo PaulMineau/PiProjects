@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🍓 Pi Hello World</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🍓</text></svg>">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🍓 Hello from your Raspberry Pi!</h1>
+            <p class="subtitle">A simple web app running on your Pi</p>
+        </header>
+
+        <main>
+            <div class="welcome-section">
+                <h2>Welcome! 👋</h2>
+                <p>Congratulations! You've successfully deployed and are running a web application on your Raspberry Pi. This app displays real-time system information and serves as a starting point for more complex projects.</p>
+            </div>
+
+            <div class="system-info">
+                <h2>📊 System Information</h2>
+                
+                <div class="info-grid">
+                    <div class="info-card">
+                        <h3>🖥️ Hardware</h3>
+                        <p><strong>Model:</strong> <span id="model">{{ pi_info.model }}</span></p>
+                        <p><strong>IP Address:</strong> <span id="ip">{{ pi_info.ip_address }}</span></p>
+                    </div>
+
+                    <div class="info-card temperature-card">
+                        <h3>🌡️ Temperature</h3>
+                        <p class="temperature-display">
+                            <span id="temperature">{{ pi_info.temperature }}</span>
+                        </p>
+                        <div class="temperature-bar">
+                            <div class="temperature-fill" id="temp-fill"></div>
+                        </div>
+                    </div>
+
+                    <div class="info-card">
+                        <h3>⚡ Performance</h3>
+                        <p><strong>CPU Usage:</strong> <span id="cpu">{{ pi_info.cpu_usage }}</span></p>
+                        <p><strong>Memory:</strong> <span id="memory">{{ pi_info.memory_usage }}</span></p>
+                        <p><strong>Total RAM:</strong> <span id="total-memory">{{ pi_info.memory_total }}</span></p>
+                    </div>
+
+                    <div class="info-card">
+                        <h3>⏰ Uptime</h3>
+                        <p><strong>Running for:</strong> <span id="uptime">{{ pi_info.uptime }}</span></p>
+                        <p><strong>Current time:</strong> <span id="current-time">{{ pi_info.current_time }}</span></p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="actions-section">
+                <h2>🎮 Actions</h2>
+                <div class="button-group">
+                    <button onclick="refreshData()" class="btn btn-primary">🔄 Refresh Data</button>
+                    <button onclick="toggleAutoRefresh()" class="btn btn-secondary" id="auto-refresh-btn">
+                        ⏱️ Enable Auto-refresh
+                    </button>
+                </div>
+                <p class="last-updated">Last updated: <span id="last-updated">{{ pi_info.current_time }}</span></p>
+            </div>
+
+            <div class="next-steps">
+                <h2>🚀 What's Next?</h2>
+                <div class="steps-grid">
+                    <div class="step">
+                        <h4>📝 Modify the Code</h4>
+                        <p>Edit <code>app.py</code> to add new features or API endpoints</p>
+                    </div>
+                    <div class="step">
+                        <h4>🎨 Customize the UI</h4>
+                        <p>Update <code>templates/index.html</code> and <code>static/style.css</code></p>
+                    </div>
+                    <div class="step">
+                        <h4>🔧 Add GPIO Control</h4>
+                        <p>Connect LEDs, sensors, or other hardware to your Pi</p>
+                    </div>
+                    <div class="step">
+                        <h4>📊 Add Data Logging</h4>
+                        <p>Store sensor readings in a database for historical analysis</p>
+                    </div>
+                </div>
+            </div>
+        </main>
+
+        <footer>
+            <p>Built with ❤️ for Raspberry Pi | Flask Web Framework</p>
+            <p><a href="/api/status" target="_blank">View JSON API</a> | <a href="/health" target="_blank">Health Check</a></p>
+        </footer>
+    </div>
+
+    <script>
+        let autoRefreshInterval = null;
+        let isAutoRefreshing = false;
+
+        // Function to refresh system data
+        async function refreshData() {
+            try {
+                const response = await fetch('/api/status');
+                const data = await response.json();
+                
+                // Update the display
+                document.getElementById('model').textContent = data.model || 'N/A';
+                document.getElementById('ip').textContent = data.ip_address || 'N/A';
+                document.getElementById('temperature').textContent = data.temperature || 'N/A';
+                document.getElementById('cpu').textContent = data.cpu_usage || 'N/A';
+                document.getElementById('memory').textContent = data.memory_usage || 'N/A';
+                document.getElementById('total-memory').textContent = data.memory_total || 'N/A';
+                document.getElementById('uptime').textContent = data.uptime || 'N/A';
+                document.getElementById('current-time').textContent = data.current_time || 'N/A';
+                document.getElementById('last-updated').textContent = data.current_time || 'N/A';
+                
+                // Update temperature bar
+                updateTemperatureBar(data.temperature);
+                
+                console.log('Data refreshed successfully');
+            } catch (error) {
+                console.error('Error refreshing data:', error);
+                alert('Failed to refresh data. Check your connection.');
+            }
+        }
+
+        // Function to update temperature visualization
+        function updateTemperatureBar(tempStr) {
+            if (!tempStr || tempStr === 'N/A') return;
+            
+            // Extract numeric value from temperature string like "42.8'C"
+            const tempMatch = tempStr.match(/(\d+\.?\d*)/);
+            if (!tempMatch) return;
+            
+            const temp = parseFloat(tempMatch[1]);
+            const maxTemp = 80; // Maximum temperature for visualization
+            const percentage = Math.min((temp / maxTemp) * 100, 100);
+            
+            const fillElement = document.getElementById('temp-fill');
+            if (fillElement) {
+                fillElement.style.width = percentage + '%';
+                
+                // Color coding based on temperature
+                if (temp < 50) {
+                    fillElement.style.backgroundColor = '#4CAF50'; // Green
+                } else if (temp < 65) {
+                    fillElement.style.backgroundColor = '#FF9800'; // Orange
+                } else {
+                    fillElement.style.backgroundColor = '#F44336'; // Red
+                }
+            }
+        }
+
+        // Function to toggle auto-refresh
+        function toggleAutoRefresh() {
+            const button = document.getElementById('auto-refresh-btn');
+            
+            if (isAutoRefreshing) {
+                // Stop auto-refresh
+                clearInterval(autoRefreshInterval);
+                isAutoRefreshing = false;
+                button.textContent = '⏱️ Enable Auto-refresh';
+                button.classList.remove('btn-success');
+                button.classList.add('btn-secondary');
+            } else {
+                // Start auto-refresh every 5 seconds
+                autoRefreshInterval = setInterval(refreshData, 5000);
+                isAutoRefreshing = true;
+                button.textContent = '⏹️ Disable Auto-refresh';
+                button.classList.remove('btn-secondary');
+                button.classList.add('btn-success');
+                
+                // Refresh immediately
+                refreshData();
+            }
+        }
+
+        // Initialize temperature bar on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            const tempElement = document.getElementById('temperature');
+            if (tempElement) {
+                updateTemperatureBar(tempElement.textContent);
+            }
+        });
+
+        // Update current time every second
+        setInterval(function() {
+            const now = new Date();
+            const timeString = now.getFullYear() + '-' + 
+                             String(now.getMonth() + 1).padStart(2, '0') + '-' + 
+                             String(now.getDate()).padStart(2, '0') + ' ' + 
+                             String(now.getHours()).padStart(2, '0') + ':' + 
+                             String(now.getMinutes()).padStart(2, '0') + ':' + 
+                             String(now.getSeconds()).padStart(2, '0');
+            
+            // Only update if not auto-refreshing (to avoid conflicts)
+            if (!isAutoRefreshing) {
+                document.getElementById('current-time').textContent = timeString;
+            }
+        }, 1000);
+    </script>
+</body>
+</html>
