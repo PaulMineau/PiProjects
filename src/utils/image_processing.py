@@ -9,310 +9,302 @@ import numpy as np
 from PIL import Image
 import logging
 
-# Set up logging
+# Configure logging
 logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
 
-
-def preprocess_image(image_input, target_size=(224, 224)):
-    """
-    Preprocess an image for classification
+class ImageProcessor:
+    def __init__(self):
+        """Initialize the image processor"""
+        logging.info("✅ ImageProcessor initialized")
     
-    Args:
-        image_input: Input image (numpy array, PIL Image, or file path)
-        target_size: Target size for resizing (width, height)
+    def preprocess_image(self, image, target_size=(224, 224), enhance=True):
+        """
+        Enhanced preprocessing for animal classification
         
-    Returns:
-        numpy.ndarray: Preprocessed image
-    """
-    try:
-        # Convert input to numpy array
-        if isinstance(image_input, str):
-            # File path
-            image = cv2.imread(image_input)
-            if image is None:
-                raise ValueError(f"Could not load image from path: {image_input}")
-        elif isinstance(image_input, Image.Image):
-            # PIL Image
-            image = np.array(image_input)
-            # Convert RGB to BGR for OpenCV
-            if len(image.shape) == 3 and image.shape[2] == 3:
-                image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
-        elif isinstance(image_input, np.ndarray):
-            # Already a numpy array
-            image = image_input.copy()
-        else:
-            raise ValueError(f"Unsupported image input type: {type(image_input)}")
-        
-        # Ensure image is in the right format
-        if len(image.shape) == 2:
-            # Grayscale to BGR
-            image = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
-        elif len(image.shape) == 3 and image.shape[2] == 4:
-            # RGBA to BGR
-            image = cv2.cvtColor(image, cv2.COLOR_RGBA2BGR)
-        
-        # Resize image
-        if target_size:
-            image = resize_image(image, target_size)
-        
-        # Normalize pixel values to 0-255 range
-        image = np.clip(image, 0, 255).astype(np.uint8)
-        
-        return image
-        
-    except Exception as e:
-        logger.error("Error preprocessing image: %s", str(e))
-        raise e
-
-
-def resize_image(image, target_size, maintain_aspect_ratio=True):
-    """
-    Resize an image to target size
+        Args:
+            image: Input image (PIL Image, numpy array, or file path)
+            target_size: Target size as (width, height)
+            enhance: Whether to apply image enhancements
+            
+        Returns:
+            numpy array: Preprocessed image ready for model
+        """
+        try:
+            # Convert to numpy array if needed
+            if isinstance(image, str):
+                # Load from file path
+                image = cv2.imread(image)
+                image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+            elif isinstance(image, Image.Image):
+                # Convert PIL Image to numpy array
+                image = np.array(image)
+            
+            # Ensure image is RGB
+            if len(image.shape) == 3 and image.shape[2] == 4:
+                # Convert RGBA to RGB
+                image = cv2.cvtColor(image, cv2.COLOR_RGBA2RGB)
+            elif len(image.shape) == 3 and image.shape[2] == 1:
+                # Convert grayscale to RGB
+                image = cv2.cvtColor(image, cv2.COLOR_GRAY2RGB)
+            elif len(image.shape) == 2:
+                # Convert grayscale to RGB
+                image = cv2.cvtColor(image, cv2.COLOR_GRAY2RGB)
+            
+            logging.info(f"🔍 Original image shape: {image.shape}")
+            
+            # Apply enhancements for better animal detection
+            if enhance:
+                image = self.enhance_for_animals(image)
+            
+            # Resize image while maintaining aspect ratio
+            image = self.resize_with_padding(image, target_size)
+            
+            # Final normalization - keep in 0-255 range for MobileNetV2 preprocessing
+            image = image.astype(np.float32)
+            
+            logging.info(f"✅ Preprocessed image shape: {image.shape}")
+            return image
+            
+        except Exception as e:
+            logging.error(f"❌ Image preprocessing failed: {e}")
+            raise
     
-    Args:
-        image (numpy.ndarray): Input image
-        target_size (tuple): Target size (width, height)
-        maintain_aspect_ratio (bool): Whether to maintain aspect ratio
+    def enhance_for_animals(self, image):
+        """
+        Apply enhancements specifically for animal detection
         
-    Returns:
-        numpy.ndarray: Resized image
-    """
-    try:
-        height, width = image.shape[:2]
+        Args:
+            image: Input image as numpy array
+            
+        Returns:
+            numpy array: Enhanced image
+        """
+        try:
+            # 1. Improve contrast to make animal features more prominent
+            image = self.improve_contrast(image)
+            
+            # 2. Reduce noise while preserving edges
+            image = cv2.bilateralFilter(image, 9, 75, 75)
+            
+            # 3. Sharpen the image to enhance animal features
+            image = self.sharpen_image(image)
+            
+            # 4. Color enhancement for better feature detection
+            image = self.enhance_colors(image)
+            
+            return image
+            
+        except Exception as e:
+            logging.error(f"❌ Animal enhancement failed: {e}")
+            return image
+    
+    def improve_contrast(self, image, clip_limit=2.0):
+        """
+        Apply CLAHE (Contrast Limited Adaptive Histogram Equalization)
+        """
+        try:
+            # Convert to LAB color space
+            lab = cv2.cvtColor(image, cv2.COLOR_RGB2LAB)
+            
+            # Apply CLAHE to L channel
+            clahe = cv2.createCLAHE(clipLimit=clip_limit, tileGridSize=(8, 8))
+            lab[:, :, 0] = clahe.apply(lab[:, :, 0])
+            
+            # Convert back to RGB
+            enhanced = cv2.cvtColor(lab, cv2.COLOR_LAB2RGB)
+            return enhanced
+            
+        except Exception as e:
+            logging.error(f"❌ Contrast improvement failed: {e}")
+            return image
+    
+    def sharpen_image(self, image, strength=0.5):
+        """
+        Apply unsharp masking for better edge definition
+        """
+        try:
+            # Create gaussian blur
+            gaussian = cv2.GaussianBlur(image, (5, 5), 1.0)
+            
+            # Create unsharp mask
+            unsharp_mask = cv2.addWeighted(image, 1.0 + strength, gaussian, -strength, 0)
+            
+            # Ensure values stay in valid range
+            unsharp_mask = np.clip(unsharp_mask, 0, 255)
+            
+            return unsharp_mask.astype(np.uint8)
+            
+        except Exception as e:
+            logging.error(f"❌ Image sharpening failed: {e}")
+            return image
+    
+    def enhance_colors(self, image, saturation_factor=1.2):
+        """
+        Enhance color saturation for better animal feature detection
+        """
+        try:
+            # Convert to HSV
+            hsv = cv2.cvtColor(image, cv2.COLOR_RGB2HSV).astype(np.float32)
+            
+            # Enhance saturation
+            hsv[:, :, 1] = hsv[:, :, 1] * saturation_factor
+            hsv[:, :, 1] = np.clip(hsv[:, :, 1], 0, 255)
+            
+            # Convert back to RGB
+            enhanced = cv2.cvtColor(hsv.astype(np.uint8), cv2.COLOR_HSV2RGB)
+            return enhanced
+            
+        except Exception as e:
+            logging.error(f"❌ Color enhancement failed: {e}")
+            return image
+    
+    def resize_with_padding(self, image, target_size, fill_color=(114, 114, 114)):
+        """
+        Resize image to target size while maintaining aspect ratio using padding
+        
+        Args:
+            image: Input image as numpy array
+            target_size: Target size as (width, height)
+            fill_color: Color for padding (RGB tuple) - using gray instead of black
+            
+        Returns:
+            numpy array: Resized image with padding
+        """
         target_width, target_height = target_size
+        height, width = image.shape[:2]
         
-        if maintain_aspect_ratio:
-            # Calculate aspect ratio
-            aspect_ratio = width / height
-            target_aspect_ratio = target_width / target_height
-            
-            if aspect_ratio > target_aspect_ratio:
-                # Image is wider than target
-                new_width = target_width
-                new_height = int(target_width / aspect_ratio)
-            else:
-                # Image is taller than target
-                new_height = target_height
-                new_width = int(target_height * aspect_ratio)
-            
-            # Resize image
+        # Calculate scaling factor to fit image in target size
+        scale = min(target_width / width, target_height / height)
+        
+        # Calculate new dimensions
+        new_width = int(width * scale)
+        new_height = int(height * scale)
+        
+        # Resize image with high-quality interpolation
+        if scale < 1:
+            # Downscaling - use INTER_AREA for better quality
             resized = cv2.resize(image, (new_width, new_height), interpolation=cv2.INTER_AREA)
-            
-            # Create a blank canvas with target size
-            canvas = np.zeros((target_height, target_width, 3), dtype=np.uint8)
-            
-            # Calculate padding
-            y_offset = (target_height - new_height) // 2
-            x_offset = (target_width - new_width) // 2
-            
-            # Place resized image on canvas
-            canvas[y_offset:y_offset + new_height, x_offset:x_offset + new_width] = resized
-            
-            return canvas
         else:
-            # Direct resize without maintaining aspect ratio
-            return cv2.resize(image, target_size, interpolation=cv2.INTER_AREA)
-            
-    except Exception as e:
-        logger.error("Error resizing image: %s", str(e))
-        raise e
-
-
-def enhance_image(image, enhance_contrast=True, enhance_brightness=False):
-    """
-    Enhance image quality for better classification
+            # Upscaling - use INTER_CUBIC for better quality
+            resized = cv2.resize(image, (new_width, new_height), interpolation=cv2.INTER_CUBIC)
+        
+        # Create new image with target size and fill color
+        new_image = np.full((target_height, target_width, 3), fill_color, dtype=image.dtype)
+        
+        # Calculate padding to center the image
+        y_offset = (target_height - new_height) // 2
+        x_offset = (target_width - new_width) // 2
+        
+        # Place resized image in center
+        new_image[y_offset:y_offset + new_height, x_offset:x_offset + new_width] = resized
+        
+        return new_image
     
-    Args:
-        image (numpy.ndarray): Input image
-        enhance_contrast (bool): Whether to enhance contrast
-        enhance_brightness (bool): Whether to enhance brightness
+    def detect_and_crop_main_subject(self, image, margin=0.1):
+        """
+        Detect and crop the main subject (animal) in the image
         
-    Returns:
-        numpy.ndarray: Enhanced image
-    """
-    try:
-        enhanced = image.copy()
-        
-        if enhance_contrast:
-            # Apply CLAHE (Contrast Limited Adaptive Histogram Equalization)
-            lab = cv2.cvtColor(enhanced, cv2.COLOR_BGR2LAB)
-            l_channel, a_channel, b_channel = cv2.split(lab)
+        Args:
+            image: Input image as numpy array
+            margin: Additional margin around detected subject (as fraction)
             
-            clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
-            l_channel = clahe.apply(l_channel)
+        Returns:
+            numpy array: Cropped image focused on main subject
+        """
+        try:
+            # Convert to grayscale for processing
+            gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
             
-            enhanced = cv2.merge((l_channel, a_channel, b_channel))
-            enhanced = cv2.cvtColor(enhanced, cv2.COLOR_LAB2BGR)
-        
-        if enhance_brightness:
-            # Adjust brightness
-            hsv = cv2.cvtColor(enhanced, cv2.COLOR_BGR2HSV)
-            h, s, v = cv2.split(hsv)
+            # Apply Gaussian blur to reduce noise
+            blurred = cv2.GaussianBlur(gray, (5, 5), 0)
             
-            # Increase value (brightness) channel slightly
-            v = cv2.add(v, 10)
-            v = np.clip(v, 0, 255)
+            # Use adaptive threshold for better edge detection
+            thresh = cv2.adaptiveThreshold(blurred, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
+                                         cv2.THRESH_BINARY, 11, 2)
             
-            enhanced = cv2.merge((h, s, v))
-            enhanced = cv2.cvtColor(enhanced, cv2.COLOR_HSV2BGR)
-        
-        return enhanced
-        
-    except Exception as e:
-        logger.error("Error enhancing image: %s", str(e))
-        return image  # Return original image if enhancement fails
-
-
-def detect_and_crop_main_object(image, padding=0.1):
-    """
-    Detect the main object in the image and crop around it
+            # Find contours
+            contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            
+            if contours:
+                # Find the largest contour (assumed to be main subject)
+                largest_contour = max(contours, key=cv2.contourArea)
+                
+                # Get bounding rectangle
+                x, y, w, h = cv2.boundingRect(largest_contour)
+                
+                # Add margin around the subject
+                margin_x = int(w * margin)
+                margin_y = int(h * margin)
+                
+                x = max(0, x - margin_x)
+                y = max(0, y - margin_y)
+                w = min(image.shape[1] - x, w + 2 * margin_x)
+                h = min(image.shape[0] - y, h + 2 * margin_y)
+                
+                # Crop the image
+                cropped = image[y:y+h, x:x+w]
+                
+                # Only return cropped if it's a reasonable size (at least 25% of original)
+                if cropped.shape[0] * cropped.shape[1] > 0.25 * image.shape[0] * image.shape[1]:
+                    logging.info(f"🔍 Cropped to main subject: {cropped.shape}")
+                    return cropped
+            
+            # Return original if cropping didn't work well
+            logging.info("🔍 No suitable crop found, using original image")
+            return image
+            
+        except Exception as e:
+            logging.error(f"❌ Subject detection failed: {e}")
+            return image
     
-    Args:
-        image (numpy.ndarray): Input image
-        padding (float): Padding around detected object (0.0 to 1.0)
+    def get_image_info(self, image):
+        """
+        Get comprehensive information about the image
         
-    Returns:
-        numpy.ndarray: Cropped image
-    """
-    try:
-        # Convert to grayscale for edge detection
-        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-        
-        # Apply Gaussian blur
-        blurred = cv2.GaussianBlur(gray, (5, 5), 0)
-        
-        # Apply threshold
-        _, thresh = cv2.threshold(blurred, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-        
-        # Find contours
-        contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        
-        if contours:
-            # Find the largest contour
-            largest_contour = max(contours, key=cv2.contourArea)
+        Args:
+            image: Input image as numpy array
             
-            # Get bounding box
-            x, y, w, h = cv2.boundingRect(largest_contour)
+        Returns:
+            dict: Image information
+        """
+        try:
+            # Basic info
+            info = {
+                'shape': image.shape,
+                'dtype': str(image.dtype),
+                'size_bytes': image.nbytes,
+                'size_kb': image.nbytes / 1024,
+                'channels': image.shape[2] if len(image.shape) > 2 else 1,
+                'width': image.shape[1],
+                'height': image.shape[0]
+            }
             
-            # Add padding
-            height, width = image.shape[:2]
-            pad_x = int(w * padding)
-            pad_y = int(h * padding)
+            # Color analysis
+            if len(image.shape) == 3:
+                info['mean_rgb'] = [float(np.mean(image[:, :, i])) for i in range(3)]
+                info['std_rgb'] = [float(np.std(image[:, :, i])) for i in range(3)]
+                
+                # Brightness and contrast metrics
+                gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
+                info['brightness'] = float(np.mean(gray))
+                info['contrast'] = float(np.std(gray))
+                
+                # Color distribution
+                info['is_grayscale'] = np.allclose(image[:, :, 0], image[:, :, 1]) and np.allclose(image[:, :, 1], image[:, :, 2])
             
-            x = max(0, x - pad_x)
-            y = max(0, y - pad_y)
-            w = min(width - x, w + 2 * pad_x)
-            h = min(height - y, h + 2 * pad_y)
+            return info
             
-            # Crop image
-            cropped = image[y:y+h, x:x+w]
-            
-            # Only return cropped image if it's significantly smaller than original
-            crop_ratio = (w * h) / (width * height)
-            if crop_ratio < 0.8:  # If cropped area is less than 80% of original
-                return cropped
-        
-        # Return original image if cropping doesn't help
-        return image
-        
-    except Exception as e:
-        logger.error("Error detecting and cropping main object: %s", str(e))
-        return image  # Return original image if detection fails
+        except Exception as e:
+            logging.error(f"❌ Failed to get image info: {e}")
+            return {}
 
+# Standalone functions for backward compatibility
+def preprocess_image(image, target_size=(224, 224)):
+    """Standalone function for image preprocessing"""
+    processor = ImageProcessor()
+    return processor.preprocess_image(image, target_size, enhance=True)
 
-def convert_image_format(image, target_format='RGB'):
-    """
-    Convert image between different color formats
-    
-    Args:
-        image (numpy.ndarray): Input image
-        target_format (str): Target format ('RGB', 'BGR', 'GRAY')
-        
-    Returns:
-        numpy.ndarray: Converted image
-    """
-    try:
-        if len(image.shape) == 2:
-            # Grayscale image
-            if target_format == 'RGB':
-                return cv2.cvtColor(image, cv2.COLOR_GRAY2RGB)
-            elif target_format == 'BGR':
-                return cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
-            else:
-                return image
-        
-        elif len(image.shape) == 3:
-            # Color image
-            if image.shape[2] == 3:
-                # Assume it's BGR (OpenCV default)
-                if target_format == 'RGB':
-                    return cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-                elif target_format == 'GRAY':
-                    return cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-                else:
-                    return image
-            elif image.shape[2] == 4:
-                # RGBA image
-                if target_format == 'RGB':
-                    return cv2.cvtColor(image, cv2.COLOR_RGBA2RGB)
-                elif target_format == 'BGR':
-                    return cv2.cvtColor(image, cv2.COLOR_RGBA2BGR)
-                elif target_format == 'GRAY':
-                    return cv2.cvtColor(image, cv2.COLOR_RGBA2GRAY)
-                else:
-                    return image
-        
-        return image
-        
-    except Exception as e:
-        logger.error("Error converting image format: %s", str(e))
-        return image
-
-
-def validate_image(image):
-    """
-    Validate that the image is suitable for processing
-    
-    Args:
-        image (numpy.ndarray): Input image
-        
-    Returns:
-        tuple: (is_valid, error_message)
-    """
-    try:
-        if image is None:
-            return False, "Image is None"
-        
-        if not isinstance(image, np.ndarray):
-            return False, f"Image must be numpy array, got {type(image)}"
-        
-        if len(image.shape) < 2 or len(image.shape) > 3:
-            return False, f"Image must have 2 or 3 dimensions, got {len(image.shape)}"
-        
-        if image.shape[0] < 10 or image.shape[1] < 10:
-            return False, f"Image too small: {image.shape[:2]}"
-        
-        if len(image.shape) == 3 and image.shape[2] not in [1, 3, 4]:
-            return False, f"Image must have 1, 3, or 4 channels, got {image.shape[2]}"
-        
-        return True, "Valid image"
-        
-    except Exception as e:
-        return False, f"Error validating image: {str(e)}"
-
-
-if __name__ == "__main__":
-    # Test the image processing functions
-    print("Image processing utilities loaded successfully!")
-    
-    # Create a test image
-    test_image = np.random.randint(0, 255, (300, 300, 3), dtype=np.uint8)
-    
-    # Test validation
-    is_valid, message = validate_image(test_image)
-    print(f"Test image validation: {is_valid}, {message}")
-    
-    # Test preprocessing
-    processed = preprocess_image(test_image)
-    print(f"Preprocessed image shape: {processed.shape}")
+def resize_image(image, target_size):
+    """Standalone function for image resizing"""
+    processor = ImageProcessor()
+    return processor.resize_with_padding(image, target_size)
